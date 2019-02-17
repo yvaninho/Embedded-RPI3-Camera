@@ -1,0 +1,79 @@
+<html>
+   <head>
+     <meta charset="utf-8"/>
+      <title>The jQuery Example</title>
+      <script type = "text/javascript" src = "jquery.min.js">
+      </script>
+
+      <script type = "text/javascript" language = "javascript">
+
+         $(document).ready(function() {
+
+          $("#prendrePhoto").click(function(event){
+            //   $('#stage').append("<img src= 'photo.png'>") ;
+
+            $('#stage').children('img') .attr('src', "photo.jpg") ;
+            $('#stage').children('img').load();
+            document.location.reload(true) ;
+            ('#paragraph').load("prendrePhoto") ;
+          //      $('#photo').attr('src', "photo1.jpg");
+
+
+          });
+
+
+          $("#tournerGauche").click(function(event){
+            //   $('#stage').append("<img src= 'photo.png'>") ;
+
+            $('#stage').children('img') .attr('src', "photo.jpg") ;
+            $('#stage').children('img').load();
+          //  document.location.reload(true) ;
+            $('#paragraph').load("tournerGauche") ;
+          //      $('#photo').attr('src', "photo1.jpg");
+          alert("ok Gauche") ;
+
+          });
+
+          $("#tournerDroite").click(function(event){
+            //   $('#stage').append("<img src= 'photo.png'>") ;
+
+            $('#stage').children('img') .attr('src', "photo.jpg") ;
+            $('#stage').children('img').load();
+          //  document.location.reload(true) ;
+            $('#paragraph').load("tournerDroite") ;
+          //      $('#photo').attr('src', "photo1.jpg");
+          alert("ok Droite") ;
+
+          });
+
+
+         });
+
+         function prendrePhoto() {
+
+
+
+         }
+      </script>
+   </head>
+
+   <body>
+     <center>
+    <h2 style =""> EmbdedCaméraRpi3</h2>
+
+      <div id = "stage" style = "background-color:white;">
+
+         <img  id = "photo" src ="photo.jpg" style = "width: 500px;  height :500px ;" >
+      </div>
+      <br/>
+      <form class="" action="index.html" method="post">
+        <button type="button" name="button" id ="tournerGauche">Tourner à gauche </button>
+         <button type="button"  name="button" id = "prendrePhoto">Prendre une photo</button>
+
+         <button type="button" name="button" id ="tournerDroite">Tourner à droite </button>
+      </form>
+      <p id ="paragraph">Heure de la dernière photo : </p>
+      <p id ="paragraph">Heure de la dernière photo : </p>
+    </center>
+   </body>
+</html>
