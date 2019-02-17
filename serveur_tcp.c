@@ -2,9 +2,39 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <malloc.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <time.h>
+#include <sys/mman.h>
+#include <sys/ioctl.h>
+#include <asm/types.h>
+#include <linux/videodev2.h>
+#include <jpeglib.h>
+#include <libv4l2.h>
+#include <signal.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <string.h>
+#include <assert.h>
+#include <getopt.h>
 
 #include "serveur.h"
 #include "Client.h"
+
+int cfileexists(const char * filename){
+    /* try to open file to read */
+    FILE *file;
+    if (file = fopen(filename, "r")){
+        fclose(file);
+        return 1;
+    }
+    return 0;
+}
 
 static void init(void)
 {
@@ -48,7 +78,7 @@ static void app(void)
 
       /* add the connection socket */
       FD_SET(sock, &rdfs);
-      
+
       /* add socket of each client */
       for(i = 0; i < actual; i++)
       {
@@ -79,7 +109,7 @@ static void app(void)
             continue;
          }
 
- 
+
 
          /* after connecting the client sends its name */
          if(read_client(csock, buffer) == -1)
@@ -101,6 +131,7 @@ static void app(void)
       else
       {
          int i = 0;
+         int picnum=1;
          for(i = 0; i < actual; i++)
          {
             /* a client is talking */
@@ -108,7 +139,7 @@ static void app(void)
             {
                Client client = clients[i];
                int c = read_client(clients[i].sock, buffer);
-	       //printf("From client: %s\t ", buffer); 
+	       //printf("From client: %s\t ", buffer);
                /* client disconnected */
                if(c == 0)
                {
@@ -116,12 +147,12 @@ static void app(void)
                   remove_client(clients, i, &actual);
                   strncpy(buffer, client.name, BUF_SIZE - 1);
                   strncat(buffer, " disconnected !", BUF_SIZE - strlen(buffer) - 1);
-	        
+
                   send_message_to_all_clients(clients, client, actual, buffer, 1);
                }
                else
                {
-		  read_message_from_clients(clients, client, actual, buffer, 0);
+		               read_message_from_clients(clients, client, actual, buffer, 0,&picnum);
                   //send_message_to_all_clients(clients, client, actual, buffer, 0);
                }
                break;
@@ -173,7 +204,7 @@ static void send_message_to_all_clients(Client *clients, Client sender, int actu
 }
 
 
-static void read_message_from_clients(Client *clients, Client sender, int actual, const char *buffer, char from_server)
+static void read_message_from_clients(Client *clients, Client sender, int actual, const char *buffer, char from_server,int *picnum)
 {
    int i = 0;
    char message[BUF_SIZE];
@@ -184,10 +215,156 @@ static void read_message_from_clients(Client *clients, Client sender, int actual
             strncat(message, " : ", sizeof message - strlen(message) - 1);
          }
          strncat(message, buffer, sizeof message - strlen(message) - 1);
-	 puts(message); 
+   puts(message);
+   if (strncmp("p", buffer, 1) == 0) {
+       printf("Server taking picture...\n");
+       int fd;
+       if((fd = open("/dev/video0", O_RDWR)) < 0){
+           perror("open");
+           exit(1);
+       }
 
-     
-  
+       struct v4l2_capability cap;
+       if(ioctl(fd, VIDIOC_QUERYCAP, &cap) < 0){
+           perror("VIDIOC_QUERYCAP");
+           exit(1);
+       }
+
+       if(!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)){
+       fprintf(stderr, "The device does not handle single-planar video capture.\n");
+       exit(1);
+       }
+
+       struct v4l2_format format;
+       format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+       format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+       format.fmt.pix.width = 800;
+       format.fmt.pix.height = 600;
+
+       if(ioctl(fd, VIDIOC_S_FMT, &format) < 0){
+           perror("VIDIOC_S_FMT");
+           exit(1);
+       }
+
+       struct v4l2_requestbuffers bufrequest;
+       bufrequest.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+       bufrequest.memory = V4L2_MEMORY_MMAP;
+       bufrequest.count = 1;
+
+       if(ioctl(fd, VIDIOC_REQBUFS, &bufrequest) < 0){
+         perror("VIDIOC_REQBUFS");
+         exit(1);
+       }
+
+       struct v4l2_buffer bufferinfo;
+       memset(&bufferinfo, 0, sizeof(bufferinfo));
+
+       bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+       bufferinfo.memory = V4L2_MEMORY_MMAP;
+       bufferinfo.index = 0;
+
+       if(ioctl(fd, VIDIOC_QUERYBUF, &bufferinfo) < 0){
+           perror("VIDIOC_QUERYBUF");
+           exit(1);
+       }
+
+       void* buffer_start = mmap(
+       NULL,
+       bufferinfo.length,
+       PROT_READ | PROT_WRITE,
+       MAP_SHARED,
+       fd,
+       bufferinfo.m.offset
+       );
+
+       if(buffer_start == MAP_FAILED){
+           perror("mmap");
+           exit(1);
+       }
+
+       memset(buffer_start, 0, bufferinfo.length);
+
+
+
+   memset(&bufferinfo, 0, sizeof(bufferinfo));
+   bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+   bufferinfo.memory = V4L2_MEMORY_MMAP;
+   bufferinfo.index = 0; /* Queueing buffer index 0. */
+
+   // Put the buffer in the incoming queue.
+   if(ioctl(fd, VIDIOC_QBUF, &bufferinfo) < 0){
+       perror("VIDIOC_QBUF");
+       exit(1);
+   }
+
+   // Activate streaming
+   int type = bufferinfo.type;
+   if(ioctl(fd, VIDIOC_STREAMON, &type) < 0){
+       perror("VIDIOC_STREAMON");
+       exit(1);
+   }
+
+   int k =0;
+   //clock_t temps;
+
+   while(k<2){
+       // Dequeue the buffer.
+       if(ioctl(fd, VIDIOC_DQBUF, &bufferinfo) < 0){
+           perror("VIDIOC_QBUF");
+           exit(1);
+       }
+
+       bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+       bufferinfo.memory = V4L2_MEMORY_MMAP;
+       /* Set the index if using several buffers */
+
+       // Queue the next one.
+       if(ioctl(fd, VIDIOC_QBUF, &bufferinfo) < 0){
+           perror("VIDIOC_QBUF");
+           exit(1);
+       }
+       k++;
+   }
+
+
+   int jpgfile;
+
+   char* filename = "image.jpeg";
+   /*
+    int exist = cfileexists(filename);
+    if(exist){
+        printf("File %s exist",filename);
+        strcat(filename,&picnum);
+        jpgfile = open(filename, O_WRONLY | O_CREAT, 0660);
+      }
+    else
+      if((jpgfile = open(filename, O_WRONLY | O_CREAT, 0660)) < 0){
+        perror("open");
+        exit(1);
+      }*/
+
+      if((jpgfile = open(filename, O_WRONLY | O_CREAT, 0660)) < 0){
+        perror("open");
+        exit(1);
+      }
+   //cfileexists
+
+
+
+   write(jpgfile, buffer_start, bufferinfo.length);
+   close(jpgfile);
+
+   if(ioctl(fd, VIDIOC_STREAMOFF, &type) < 0){
+       perror("VIDIOC_STREAMOFF");
+       exit(1);
+   }
+
+       printf("picture taken and saved\n");
+
+       close(fd);
+   }
+
+
 }
 
 
@@ -201,7 +378,7 @@ static int init_connection(void)
       perror("socket()");
       exit(errno);
    }
-   printf("socket creation failed...\n"); 
+   printf("socket creation failed...\n");
 
    sin.sin_addr.s_addr = htonl(INADDR_ANY);
    sin.sin_port = htons(PORT);
@@ -212,7 +389,7 @@ static int init_connection(void)
       perror("bind()");
       exit(errno);
    }
-   printf("connected to the server..\n"); 
+   printf("connected to the server..\n");
 
    if(listen(sock, MAX_CLIENTS) == SOCKET_ERROR)
    {
